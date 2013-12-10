@@ -43,8 +43,6 @@ with open('../handout/training.csv', 'rb') as csvfile:
 
 print('Loading testing data')
 cityNameTest = []
-cityCodeTest =[]
-countryCodeTest = []
 
 with open('../handout/testing.csv', 'rb') as csvfile:
     reader = csv.reader(csvfile)
@@ -52,11 +50,7 @@ with open('../handout/testing.csv', 'rb') as csvfile:
     for row in reader:
         cityNameTest.append(row[0])
 
-"""
-
-Training with libraries
-
-"""
+###Training with libraries
 
 ### Parser using external options
 
@@ -93,6 +87,12 @@ op.add_option("--cities",
 op.add_option("--countries",
               action="store_true",
               help="Classify countries")
+op.add_option("--validation",
+              action="store_true",
+              help="Splits training data into training and validation")
+op.add_option("--plots",
+             action="store_true",
+             help="Show some plots")
 
 (opts, args) = op.parse_args()
 
@@ -117,16 +117,27 @@ data_train = fetch_20newsgroups(subset='train', categories=categories,
 
 #len(data_train.target) : 11314
 #y_train, y_test = data_train.target, data_test.target
-trainSize = 8*(len(countryCode)-1)/10
-if opts.countries:
-        y_train = countryCode[:trainSize]
-        y_valid = countryCode[trainSize:]
+if opts.validation:
+        trainSize = 8*(len(countryCode)-1)/10
+        X_train = cityName[:trainSize]                                
+        X_valid = cityName[trainSize:]
+        if opts.countries:
+                y_train = countryCode[:trainSize]
+                y_valid = countryCode[trainSize:]
+                
+        if opts.cities:
+                y_train = cityCode[:trainSize]
+                y_valid = cityCode[trainSize:]
+else:
+        X_train = cityName                                
+        X_valid = cityNameTest
+        y_valid = X_valid         
+        if opts.countries:
+                y_train = countryCode
 
-if opts.cities:
-        y_train = cityCode[:trainSize]
-        y_valid = cityCode[trainSize:]
-
-
+        if opts.cities:
+                y_train = cityCode
+        
 print("Extracting features from the training dataset using a sparse vectorizer")
 t0 = time()
 if opts.use_hashing:
@@ -134,12 +145,12 @@ if opts.use_hashing:
         #                           n_features=opts.n_features)
         #X_train = vectorizer.transform(data_train.data)
         vectorizer = HashingVectorizer(non_negative=True)
-        X_train = vectorizer.transform(cityName[:trainSize])
+        X_train = vectorizer.transform(X_train)
 else:
         #vectorizer = TfidfVectorizer(sublinear_tf=True, max_df=0.5,stop_words='english')
         #X_train = vectorizer.fit_transform(data_train.data)
         vectorizer = TfidfVectorizer(sublinear_tf=True, max_df=0.5)
-        X_train = vectorizer.fit_transform(cityName[:trainSize])
+        X_train = vectorizer.fit_transform(X_train)
 duration = time() - t0
 print("done in %fs" % duration)
 print("n_samples: %d, n_features: %d" % X_train.shape)
@@ -147,7 +158,7 @@ print()
 
 print("Extracting features from the validation dataset using the same vectorizer")
 t0 = time()
-X_valid = vectorizer.transform(cityName[trainSize:])
+X_valid = vectorizer.transform(X_valid)
 #X_test = vectorizer.transform(cityNameTest)
 duration = time() - t0
 print("done in %fs" % duration)
@@ -184,7 +195,7 @@ def benchmark(clf):
     pred = clf.predict(X_valid)
     test_time = time() - t0
     print("test time:  %0.3fs" % test_time)
-
+   
     score = metrics.f1_score(y_valid, pred)
     print("f1-score:   %0.3f" % score)
 
@@ -198,7 +209,6 @@ def benchmark(clf):
                 top10 = np.argsort(clf.coef_[i])[-10:]
                 print(trim("%s: %s"
                       % (category, " ".join(feature_names[top10]))))
-        print()
 
     if opts.print_report:
         print("classification report:")
@@ -209,7 +219,6 @@ def benchmark(clf):
         print("confusion matrix:")
         print(metrics.confusion_matrix(y_valid, pred))
 
-    print()
     clf_descr = str(clf).split('(')[0]
     return clf_descr, score, train_time, test_time
 
@@ -271,6 +280,8 @@ print('=' * 80)
 print("LinearSVC with L1-based feature selection")
 results.append(benchmark(L1LinearSVC()))
 
+
+
 # make some plots
 
 indices = np.arange(len(results))
@@ -281,22 +292,31 @@ clf_names, score, training_time, test_time = results
 training_time = np.array(training_time) / np.max(training_time)
 test_time = np.array(test_time) / np.max(test_time)
 
-pl.figure(figsize=(12,8))
-pl.title("Score")
-pl.barh(indices, score, .2, label="score", color='r')
-pl.barh(indices + .3, training_time, .2, label="training time", color='g')
-pl.barh(indices + .6, test_time, .2, label="test time", color='b')
-pl.yticks(())
-pl.legend(loc='best')
-pl.subplots_adjust(left=.25)
-pl.subplots_adjust(top=.95)
-pl.subplots_adjust(bottom=.05)
+if opts.plots:
+        pl.figure(figsize=(12,8))
+        pl.title("Score")
+        pl.barh(indices, score, .2, label="score", color='r')
+        pl.barh(indices + .3, training_time, .2, label="training time", color='g')
+        pl.barh(indices + .6, test_time, .2, label="test time", color='b')
+        pl.yticks(())
+        pl.legend(loc='best')
+        pl.subplots_adjust(left=.25)
+        pl.subplots_adjust(top=.95)
+        pl.subplots_adjust(bottom=.05)
 
-for i, c in zip(indices, clf_names):
-    pl.text(-.3, i, c)
+        for i, c in zip(indices, clf_names):
+                pl.text(-.3, i, c)
 
-pl.show()
+        pl.show()
 
+"""
+###Leo:This writes the data to a file
+
+with open('result.csv','w') as csvfile:
+        writer = csv.writer(csvfile)
+        for row in pred:
+                writer.writerow(pred)
+"""
 
 """
 This is the an awesome Spelling Corrector
