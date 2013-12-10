@@ -23,6 +23,8 @@ from sklearn.neighbors import NearestCentroid
 from sklearn.naive_bayes import BernoulliNB, MultinomialNB
 import numpy as np
 import pylab as pl
+from sklearn import metrics
+
 
 #Loading Data
 
@@ -62,9 +64,9 @@ op = OptionParser()
 op.add_option("--report",
               action="store_true", dest="print_report",
               help="Print a detailed classification report.")
-op.add_option("--chi2_select",
-              action="store", type="int", dest="select_chi2",
-              help="Select some number of features using a chi-squared test")
+#op.add_option("--chi2_select",
+#              action="store", type="int", dest="select_chi2",
+#              help="Select some number of features using a chi-squared test")
 op.add_option("--confusion_matrix",
               action="store_true", dest="print_cm",
               help="Print the confusion matrix.")
@@ -85,6 +87,12 @@ op.add_option("--filtered",
               action="store_true",
               help="Remove newsgroup information that is easily overfit: "
                    "headers, signatures, and quoting.")
+op.add_option("--cities",
+              action="store_true",
+              help="Classify cities")
+op.add_option("--countries",
+              action="store_true",
+              help="Classify countries")
 
 (opts, args) = op.parse_args()
 
@@ -101,15 +109,23 @@ data_train = fetch_20newsgroups(subset='train', categories=categories,
 #data_train.items()[3][0]: target names
 #data_train.items()[4][0]: filenames
 
-data_test = fetch_20newsgroups(subset='test', categories=categories,
-                               shuffle=True, random_state=42,
-                               remove=remove)
+#data_test = fetch_20newsgroups(subset='test', categories=categories,
+#                               shuffle=True, random_state=42,
+#                               remove=remove)
 
-categories = data_train.target_names    # for case categories == None
+#categories = data_train.target_names    # for case categories == None
 
 #len(data_train.target) : 11314
 #y_train, y_test = data_train.target, data_test.target
-y_train = countryCode
+trainSize = 8*(len(countryCode)-1)/10
+if opts.countries:
+        y_train = countryCode[:trainSize]
+        y_valid = countryCode[trainSize:]
+
+if opts.cities:
+        y_train = cityCode[:trainSize]
+        y_valid = cityCode[trainSize:]
+
 
 print("Extracting features from the training dataset using a sparse vectorizer")
 t0 = time()
@@ -118,23 +134,24 @@ if opts.use_hashing:
         #                           n_features=opts.n_features)
         #X_train = vectorizer.transform(data_train.data)
         vectorizer = HashingVectorizer(non_negative=True)
-        X_train = vectorizer.transform(cityName)
+        X_train = vectorizer.transform(cityName[:trainSize])
 else:
         #vectorizer = TfidfVectorizer(sublinear_tf=True, max_df=0.5,stop_words='english')
         #X_train = vectorizer.fit_transform(data_train.data)
         vectorizer = TfidfVectorizer(sublinear_tf=True, max_df=0.5)
-        X_train = vectorizer.fit_transform(cityName)
+        X_train = vectorizer.fit_transform(cityName[:trainSize])
 duration = time() - t0
 print("done in %fs" % duration)
 print("n_samples: %d, n_features: %d" % X_train.shape)
 print()
 
-print("Extracting features from the test dataset using the same vectorizer")
+print("Extracting features from the validation dataset using the same vectorizer")
 t0 = time()
-X_test = vectorizer.transform(cityNameTest)
+X_valid = vectorizer.transform(cityName[trainSize:])
+#X_test = vectorizer.transform(cityNameTest)
 duration = time() - t0
 print("done in %fs" % duration)
-print("n_samples: %d, n_features: %d" % X_test.shape)
+print("n_samples: %d, n_features: %d" % X_valid.shape)
 print()
 
 
@@ -146,8 +163,8 @@ if opts.select_chi2:
     print("Extracting %d best features by a chi-squared test" %
           opts.select_chi2)
     ch2 = SelectKBest(chi2, k=opts.select_chi2)
-    X_train = ch2.fit_transform(X_train, y_train)
-    X_test = ch2.transform(X_test)
+    X_train = ch2.fit_transform(X_valid, y_train)
+    X_valid = ch2.transform(X_valid)
     print("done in %fs" % (time() - t0))
     print()
 """
@@ -164,12 +181,12 @@ def benchmark(clf):
     print("train time: %0.3fs" % train_time)
 
     t0 = time()
-    pred = clf.predict(X_test)
+    pred = clf.predict(X_valid)
     test_time = time() - t0
     print("test time:  %0.3fs" % test_time)
 
-    #score = metrics.f1_score(y_test, pred)
-    #print("f1-score:   %0.3f" % score)
+    score = metrics.f1_score(y_valid, pred)
+    print("f1-score:   %0.3f" % score)
 
     if hasattr(clf, 'coef_'):
         print("dimensionality: %d" % clf.coef_.shape[1])
@@ -185,16 +202,16 @@ def benchmark(clf):
 
     if opts.print_report:
         print("classification report:")
-        print(metrics.classification_report(y_test, pred,
+        print(metrics.classification_report(y_valid, pred,
                                             target_names=categories))
 
     if opts.print_cm:
         print("confusion matrix:")
-        print(metrics.confusion_matrix(y_test, pred))
+        print(metrics.confusion_matrix(y_valid, pred))
 
     print()
     clf_descr = str(clf).split('(')[0]
-    return clf_descr, train_time, test_time
+    return clf_descr, score, train_time, test_time
 
 
 results = []
@@ -206,7 +223,6 @@ for clf, name in (
     print('=' * 80)
     print(name)
     results.append(benchmark(clf))
-
 
 for penalty in ["l2", "l1"]:
     print('=' * 80)
@@ -259,15 +275,15 @@ results.append(benchmark(L1LinearSVC()))
 
 indices = np.arange(len(results))
 
-results = [[x[i] for x in results] for i in range(3)]
+results = [[x[i] for x in results] for i in range(4)]
 
-clf_names, training_time, test_time = results
+clf_names, score, training_time, test_time = results
 training_time = np.array(training_time) / np.max(training_time)
 test_time = np.array(test_time) / np.max(test_time)
 
 pl.figure(figsize=(12,8))
 pl.title("Score")
-#pl.barh(indices, score, .2, label="score", color='r')
+pl.barh(indices, score, .2, label="score", color='r')
 pl.barh(indices + .3, training_time, .2, label="training time", color='g')
 pl.barh(indices + .6, test_time, .2, label="test time", color='b')
 pl.yticks(())
