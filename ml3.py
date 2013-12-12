@@ -101,9 +101,9 @@ remove = ()
 
 ## Getting data
 
-data_train = fetch_20newsgroups(subset='train', categories=categories,
-                                shuffle=True, random_state=42,
-                                remove=remove)
+#data_train = fetch_20newsgroups(subset='train', categories=categories,
+#                                shuffle=True, random_state=42,
+#                                remove=remove)
 #data_train.items()[1][0]: data
 #data_train.items()[2][0]: target 
 #data_train.items()[3][0]: target names
